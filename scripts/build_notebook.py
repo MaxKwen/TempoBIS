@@ -73,10 +73,22 @@ pilot = sorted(glob.glob("/kaggle/working/outputs/pilot/*.npz"))
 vid = os.path.basename(pilot[0])[:-4]
 raw = load_landmarks(pilot[0])
 row = audit[audit.video_id == vid].iloc[0]
-cap = cv2.VideoCapture(row.path); n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+ts = np.linspace(0, len(raw["pose"]) - 1, 4).astype(int)
+# Read frames sequentially: seeking with CAP_PROP_POS_FRAMES is unreliable for these videos.
+cap = cv2.VideoCapture(row.path); frames, i = {}, 0
+while len(frames) < len(set(ts)):
+    ok, fr = cap.read()
+    if not ok:
+        break
+    if i in ts:
+        frames[i] = fr
+    i += 1
+cap.release()
 fig, axes = plt.subplots(1, 4, figsize=(16, 4))
-for ax, t in zip(axes, np.linspace(0, len(raw["pose"]) - 1, 4).astype(int)):
-    cap.set(cv2.CAP_PROP_POS_FRAMES, t); ok, fr = cap.read()
+for ax, t in zip(axes, ts):
+    fr = frames.get(t)
+    if fr is None:
+        ax.set_title(f"frame {t} unreadable"); ax.axis("off"); continue
     h, w = fr.shape[:2]; ax.imshow(fr[..., ::-1])
     for key, c in (("pose", "y"), ("lhand", "c"), ("rhand", "m")):
         p = raw[key][t]; ax.scatter(p[:, 0] * w, p[:, 1] * h, s=6, c=c)
