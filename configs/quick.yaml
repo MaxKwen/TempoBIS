@@ -1,0 +1,11 @@
+# Fast sanity run: official SI split only, one seed, fewer epochs.
+# Merge over your main config so it reuses the extracted landmarks.
+paths:
+  results_name: results_quick
+split:
+  protocol: si_signer4
+model:
+  epochs: 30
+  patience: 8
+  train_speed_aug: false
+seeds: [0]

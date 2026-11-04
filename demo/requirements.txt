@@ -1,0 +1,11 @@
+# Hugging Face Spaces (Gradio SDK) requirements for the TempoBIS demo
+numpy
+pandas
+scikit-learn
+scipy
+matplotlib
+pyyaml
+opencv-python-headless
+mediapipe>=0.10.14
+torch
+gradio>=4.0

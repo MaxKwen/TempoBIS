@@ -1,0 +1,11 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+outputs/
+outputs_*/
+configs/kaggle*.yaml
+demo/*.pt
+demo/*.pkl
+*.mp4
+*.mov
+*.npz
