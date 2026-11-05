@@ -78,6 +78,44 @@ def test_active_segment_within_bounds(seq):
     assert 0 <= a < b <= len(seq) - 1
 
 
+def test_warp_speed_keeps_idle_and_changes_core(seq):
+    a, b = tm.active_segment(seq)
+    w = tm.warp_speed(seq, 0.5, (a, b))
+    np.testing.assert_allclose(w[:a], seq[:a])
+    np.testing.assert_allclose(w[-(len(seq) - b - 1):], seq[b + 1:])
+    m = (a + b) // 2
+    # first half 2x slower, second half 2x faster
+    assert len(w) - len(seq) == pytest.approx((m - a) - (b - m) / 2, abs=2)
+    assert tm.warp_speed(seq, 1.0) is seq
+
+
+def test_hold_pause_length_and_frozen_frames(seq):
+    a, b = tm.active_segment(seq)
+    h = tm.hold_frame(seq, (a, b))
+    assert a <= h <= b
+    out = tm.hold_pause(seq, 0.5, (a, b))
+    n_hold = b - a + 1                                  # segment lasts 2x as long
+    assert len(out) == len(seq) + n_hold
+    np.testing.assert_allclose(out[h:h + n_hold + 1], np.repeat(seq[h:h + 1], n_hold + 1, axis=0))
+    np.testing.assert_allclose(out[h + n_hold + 1:], seq[h + 1:])
+    assert tm.hold_pause(seq, 1.5) is seq
+
+
+def test_hold_applicable_only_when_slowing_down():
+    assert tm.applicable("hold", 0.5) and tm.applicable("hold", 1.0)
+    assert not tm.applicable("hold", 2.0)
+    assert all(tm.applicable(k, 2.0) for k in ("global", "core", "warp"))
+
+
+@pytest.mark.parametrize("kind", tm.PERTURBATIONS)
+@pytest.mark.parametrize("factor", [0.25, 4.0])
+def test_extreme_perturbations_normalise(seq, kind, factor):
+    out = tm.perturb(seq, kind, factor)
+    assert np.isfinite(out).all() and len(out) >= 2
+    for method in ("uniform", "trim_uniform", "motion_aware"):
+        assert tm.normalize(out, method, CFG_T).shape == (32, seq.shape[1])
+
+
 def test_assign_hands_by_pose_wrist():
     pose = np.full((33, 4), np.nan, np.float32)
     pose[15, :2] = [0.7, 0.5]   # signer's left wrist (image right)

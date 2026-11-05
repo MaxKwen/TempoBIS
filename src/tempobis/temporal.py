@@ -16,6 +16,9 @@ Perturbations (test-time stress test):
                   head/tail keep their length. The active segment is found from wrist
                   height, NOT from motion energy, so the perturbation is not defined by
                   the same signal the proposed method uses.
+  warp_speed    - uneven tempo inside the signing segment: first half s x, second half 1/s x
+  hold_pause    - the sign is frozen at its peak (highest wrist) so the signing segment lasts
+                  1/s times as long; only s < 1 (a pause cannot speed a sign up)
 """
 from __future__ import annotations
 
@@ -157,11 +160,65 @@ def core_speed(seq: np.ndarray, factor: float, segment: tuple[int, int] | None =
     return np.concatenate([seq[:a], core_new, seq[b + 1:]], axis=0)
 
 
+def _resample_len(part: np.ndarray, factor: float) -> np.ndarray:
+    """Play ``part`` ``factor`` x faster (same frame rate)."""
+    n_new = max(2, int(round((len(part) - 1) / factor)) + 1)
+    return interp_at(part, np.linspace(0, len(part) - 1, n_new))
+
+
+def warp_speed(seq: np.ndarray, factor: float, segment: tuple[int, int] | None = None) -> np.ndarray:
+    """Uneven tempo inside the signing segment: first half ``factor`` x, second half ``1/factor`` x.
+
+    Idle head/tail are untouched. factor < 1 = slow start, rushed end; factor > 1 = the reverse.
+    """
+    if factor == 1.0:
+        return seq
+    a, b = segment if segment is not None else active_segment(seq)
+    m = (a + b) // 2
+    first = _resample_len(seq[a:m + 1], factor)
+    second = _resample_len(seq[m:b + 1], 1.0 / factor)
+    return np.concatenate([seq[:a], first, second[1:], seq[b + 1:]], axis=0)
+
+
+def hold_frame(seq: np.ndarray, segment: tuple[int, int] | None = None) -> int:
+    """Frame inside the signing segment where a wrist is highest (the natural place to hold)."""
+    a, b = segment if segment is not None else active_segment(seq)
+    y = wrist_heights(seq[a:b + 1]).astype(np.float64)       # y grows downward
+    return a + int(np.argmin(y.min(axis=1)))
+
+
+def hold_pause(seq: np.ndarray, factor: float, segment: tuple[int, int] | None = None) -> np.ndarray:
+    """Freeze the sign at its peak so the signing segment lasts ``1/factor`` times as long.
+
+    Only slows down (factor < 1): a pause cannot make a sign faster. factor >= 1 returns ``seq``.
+    """
+    if factor >= 1.0:
+        return seq
+    a, b = segment if segment is not None else active_segment(seq)
+    n_hold = int(round((b - a + 1) * (1.0 / factor - 1.0)))
+    if n_hold <= 0:
+        return seq
+    h = hold_frame(seq, (a, b))
+    return np.concatenate([seq[:h + 1], np.repeat(seq[h:h + 1], n_hold, axis=0), seq[h + 1:]], axis=0)
+
+
+PERTURBATIONS = ("global", "core", "warp", "hold")
+
+
+def applicable(kind: str, factor: float) -> bool:
+    """Whether a (perturbation, factor) cell is evaluated. Holds only slow a sign down."""
+    return not (kind == "hold" and factor > 1.0)
+
+
 def perturb(seq: np.ndarray, kind: str, factor: float) -> np.ndarray:
     if kind == "global":
         return global_speed(seq, factor)
     if kind == "core":
         return core_speed(seq, factor)
+    if kind == "warp":
+        return warp_speed(seq, factor)
+    if kind == "hold":
+        return hold_pause(seq, factor)
     raise ValueError(f"unknown perturbation: {kind}")
 
 

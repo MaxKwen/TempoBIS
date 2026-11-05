@@ -1,0 +1,11 @@
+# Harder speed stress test (run after the default experiment showed ~0 drop at 0.5–1.5x).
+# Merge over your main config so it reuses the extracted landmarks; results go to a new folder.
+#   global - whole clip (sanity check: uniform is invariant by construction)
+#   core   - signing segment only, constant speed change
+#   warp   - uneven tempo: first half of the sign at s x, second half at 1/s x
+#   hold   - pause at the sign's peak so the sign lasts 1/s x as long (only s < 1)
+paths:
+  results_name: results_stress
+stress:
+  factors: [0.25, 0.33, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+  types: [global, core, warp, hold]

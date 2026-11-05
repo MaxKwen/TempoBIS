@@ -107,3 +107,114 @@ Interpretasi awal (sebelum dicek):
 - **Risiko riset `motion_aware`:** pada isyarat "tahan" seperti Belajar, densitas gerak
   menaruh sebagian besar timestep di fase angkat/turun (epentesis), bukan di pose tahan yang
   informatif. α = 0,3 menahan sebagian. Ini hipotesis yang perlu diuji di Fase 6, bukan bug.
+
+## Fase 2 — Ekstraksi penuh (4 Nov 2026)
+
+Config: `pose_model: lite`, `min_detection_confidence: 0.5`, `min_tracking_confidence: 0.5`.
+Sempat dihentikan di ≈850 video, lalu dilanjutkan (resume).
+
+- **1600/1600 video ter-extract.** `landmark_stats.csv` dibangun dengan me-load setiap `.npz`,
+  jadi tidak ada file korup (kalau ada, `np.load` akan error).
+- Statistik `frames` identik dengan `decoded_frames` di audit (mean 64,888125; min 42; median 63;
+  max 173). Setiap file berisi seluruh frame video, tidak ada yang terpotong.
+
+| | pose_rate | lhand_rate | rhand_rate | any_hand_rate |
+|---|---|---|---|---|
+| mean | 1.0 | 0.164 | 0.648 | 0.665 |
+| std | 0.0 | 0.295 | 0.122 | 0.142 |
+| min | 1.0 | 0.000 | 0.212 | 0.212 |
+| 25% | 1.0 | 0.000 | 0.560 | 0.567 |
+| 50% | 1.0 | 0.024 | 0.652 | 0.657 |
+| 75% | 1.0 | 0.082 | 0.727 | 0.737 |
+| max | 1.0 | 1.000 | 0.949 | 1.000 |
+
+- Pose 100% di semua video.
+- `rhand_rate` mean 0,65 konsisten dengan pilot (tangan hilang saat istirahat, bukan gagal deteksi).
+- `lhand_rate` median 0,02: mayoritas isyarat satu tangan; ekor atas (max 1,0) kemungkinan
+  signer 3 (framing lebar) + gloss dua tangan.
+- **TODO:** cek video dengan `rhand_rate` rendah (min 0,21) dan rata-rata per signer × gloss,
+  serta `rhand_rate` di dalam segmen aktif.
+- **Backup:** `/kaggle/working/outputs` (landmarks/, audit/, pilot/, landmark_stats.csv) diunggah
+  sebagai Kaggle Dataset privat `maximusquinnhertada/tempobis-landmarks` (CC BY-NC 4.0) via
+  `kaggle datasets create --dir-mode zip`.
+
+## Fase 3 — Quick run (protokol `si_signer4`, 1 seed)
+
+Clean macro-F1 (core): uniform 0,625 · trim_uniform 0,771 · motion_aware 0,676.
+Drop core: 0,005 / 0,001 / 0,003. n = 1, tanpa uji statistik. Pipeline belajar jauh di atas 1/32.
+
+## Fase 4–5 — Eksperimen penuh (GRU, LOSO 5 fold × 3 seed)
+
+**Peringatan:** metrik masih memakai `labels=range(32)`, jadi fold signer 0 dibatasi maksimal 12/32.
+Semua rata-rata di bawah ikut bias ke bawah, dan std antar-fold (±0,29) membengkak.
+
+Clean macro-F1, mean ± std atas fold:
+uniform 0,605 ± 0,289 · trim_uniform 0,639 ± 0,290 · motion_aware 0,608 ± 0,299 ·
+uniform_speedaug 0,630 ± 0,304.
+
+Drop (clean − rata-rata terperturbasi):
+- global: 0,001 / −0,000 / 0,000 / −0,000
+- core: 0,000 / 0,000 / 0,000 / 0,002
+- rentang core uniform di semua faktor: 0,598–0,611
+
+Paired vs uniform, n = 15 pasangan (fold, seed):
+- Δclean: trim +0,034 (p = 0,0084) · motion_aware +0,003 (p = 0,80) · speedaug +0,025 (p = 0,107)
+- Δdrop: semuanya |Δ| ≤ 0,002, p ≥ 0,15
+
+Run per fold yang terlihat di log (macro-F1 clean, uniform/trim/motion/speedaug):
+- signer 2 seed 2: 0,870 / 0,889 / 0,906 / 0,924
+- signer 3 seed 0–2: 0,271–0,342 / 0,310–0,444 / 0,275–0,308 / 0,286–0,415
+- signer 4 seed 0–2: 0,645–0,726 / 0,733–0,772 / 0,739–0,768 / 0,743–0,778
+
+**Interpretasi sementara:**
+1. Pada rentang 0,5–1,5×, perturbasi kecepatan hampir tidak menurunkan performa metode mana pun,
+   termasuk baseline. Hipotesis "motion_aware lebih tahan" tidak bisa diuji karena baseline
+   tidak terganggu. Perlu dipastikan dulu bahwa perturbasi core benar-benar mengubah input.
+2. Trim memberi kenaikan clean yang konsisten. Tapi n = 15 berisi 3 seed per fold (tidak
+   independen). Dengan uji tingkat fold (n = 5), p minimum dua sisi = 0,0625.
+3. Fold signer 3 jauh lebih rendah (≈0,27–0,44). Konsisten dengan confound framing
+   (tangan istirahat terlihat) dari Fase 1.
+
+### Diagnosis setelah Fase 5
+
+Akurasi clean (faktor 1,0), rata-rata 3 seed:
+
+| test_signer | motion_aware | trim_uniform | uniform | uniform_speedaug |
+|---|---|---|---|---|
+| 0 | 0.764 | 0.769 | 0.803 | 0.750 |
+| 1 | 0.833 | 0.886 | 0.876 | 0.885 |
+| 2 | 0.909 | 0.914 | 0.893 | 0.911 |
+| 3 | 0.357 | 0.429 | 0.378 | 0.410 |
+| 4 | 0.764 | 0.766 | 0.691 | 0.771 |
+
+Perturbasi vs input uniform (rata-rata |Δ| fitur setelah resample T = 32, per signer):
+
+| signer | fallback | core_frac | d_core 0,5× | d_core 1,5× | d_global 0,5× |
+|---|---|---|---|---|---|
+| 0 | 0.0 | 0.649 | 0.098 | 0.071 | 0.0 |
+| 1 | 0.0 | 0.694 | 0.093 | 0.071 | 0.0 |
+| 2 | 0.0 | 0.710 | 0.089 | 0.068 | 0.0 |
+| 3 | 0.0 | 0.676 | 0.099 | 0.074 | 0.0 |
+| 4 | 0.0 | 0.636 | 0.096 | 0.069 | 0.0 |
+
+- **Bug metrik terkonfirmasi:** akurasi fold signer 0 = 0,75–0,80, padahal macro-F1-nya dibatasi ≤ 0,375.
+  Fold yang benar-benar sulit hanya signer 3 (0,36–0,43).
+- `active_segment` tidak pernah fallback. Segmen isyarat ≈ 64–71% klip.
+- Perturbasi global terhadap uniform = 0 persis. Ini sesuai desain (pemeriksaan kewajaran):
+  resample linier dari resample linier di posisi yang sama.
+- Perturbasi core memang mengubah input (≈0,07–0,10), tapi model hampir tidak terpengaruh.
+  Skala 0,07–0,10 belum punya pembanding (mis. jarak antar-sampel kelas sama / antar-kelas).
+- Kesimpulan sementara: dengan uniform resampling + GRU, perubahan kecepatan segmen isyarat
+  0,5–1,5× bukan masalah nyata di dataset ini. Belum ada "kerentanan" untuk diperbaiki
+  motion_aware.
+
+### Perubahan setelah diagnosis (belum dijalankan di Kaggle)
+
+- **Metrik:** macro-F1 sekarang dirata-rata atas kelas yang ada di test signer
+  (`experiment.macro_f1_present`). `results.csv` mencatat `n_test_classes` dan `n_classes`.
+  `summary.md` menandai fold yang cakupan kelasnya berkurang dan menampilkan clean macro-F1
+  dengan dan tanpa fold tersebut. **Angka Fase 4–5 di atas memakai metrik lama.**
+- **Stress test lebih berat** (`configs/stress.yaml`, hasil ke `outputs/results_stress/`):
+  faktor 0,25–4×, ditambah `warp` (setengah awal isyarat s×, setengah akhir 1/s×) dan `hold`
+  (jeda di puncak isyarat, tinggi pergelangan maksimum; hanya s < 1).
+- Test lokal: 32 lulus, 1 skip (GRU, butuh PyTorch).

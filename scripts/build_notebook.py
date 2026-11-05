@@ -47,7 +47,10 @@ with open("configs/kaggle.yaml", "w") as f:
 quick = _merge(cfg, yaml.safe_load(open("configs/quick.yaml")))  # same landmarks, separate results folder
 with open("configs/kaggle_quick.yaml", "w") as f:
     yaml.safe_dump(quick, f)
-CFG, QCFG = "configs/kaggle.yaml", "configs/kaggle_quick.yaml"
+stress = _merge(cfg, yaml.safe_load(open("configs/stress.yaml")))  # harder stress test, own results folder
+with open("configs/kaggle_stress.yaml", "w") as f:
+    yaml.safe_dump(stress, f)
+CFG, QCFG, SCFG = "configs/kaggle.yaml", "configs/kaggle_quick.yaml", "configs/kaggle_stress.yaml"
 print(yaml.safe_dump(cfg["paths"]))"""),
 
     ("md", """## Phase 0 — Dataset audit
@@ -126,6 +129,15 @@ cell if the session restarts (copy `outputs/results` to a dataset to keep it bet
     ("code", """from IPython.display import Markdown, Image
 display(Markdown(open("/kaggle/working/outputs/results/summary.md").read()))
 display(Image("/kaggle/working/outputs/results/figures/robustness_curves.png"))"""),
+
+    ("md", """## Phase 5b — Harder stress test
+The default factors (0.5–1.5x) barely moved any method. `configs/stress.yaml` widens them to
+0.25–4x and adds two perturbations: **warp** (first half of the sign at s x, second half at 1/s x)
+and **hold** (pause at the sign's peak; slow-down only). Same folds, seeds and methods; results go
+to `outputs/results_stress/`. Resumable."""),
+    ("code", "!python -m tempobis train --config $SCFG 2>&1 | tail -80"),
+    ("code", """display(Markdown(open("/kaggle/working/outputs/results_stress/summary.md").read()))
+display(Image("/kaggle/working/outputs/results_stress/figures/robustness_curves.png"))"""),
 
     ("md", "## Phase 6 — Error analysis"),
     ("code", "!python -m tempobis analyze --config $CFG"),
