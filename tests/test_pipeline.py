@@ -31,6 +31,33 @@ def test_loso_folds_have_no_signer_overlap(tiny):
         assert len(f["train_ids"]) + len(f["test_ids"]) == len(idx)
 
 
+def test_macro_f1_ignores_classes_absent_from_test():
+    import numpy as np
+    from tempobis.experiment import macro_f1_present
+
+    y_true = np.array([0, 0, 1, 1])            # classes 2 and 3 not in this held-out signer
+    assert macro_f1_present(y_true, y_true) == pytest.approx(1.0)
+    # predicting an absent class is still an error (lowers recall of class 0)
+    assert macro_f1_present(y_true, np.array([0, 3, 1, 1])) < 1.0
+
+
+def test_run_records_class_coverage_and_skips_hold_speedups(tiny, tmp_path):
+    d, idx = tiny
+    idx = idx[~((idx.signer == idx.signer.min()) & (idx.label == idx.label.max()))]  # one signer lacks a class
+    cfg = _cfg()
+    cfg["temporal"]["methods"] = ["uniform"]
+    cfg["stress"] = {"factors": [0.5, 1.0, 2.0], "types": ["core", "hold"]}
+    seqs, _ = load_sequences(idx, d / "landmarks", cfg)
+    res = run(cfg, idx, seqs, tmp_path, verbose=False)
+    assert not ((res.perturbation == "hold") & (res.factor > 1)).any()
+    assert len(res[res.perturbation == "hold"]) == 3 * 2          # folds x {0.5, 1.0}
+    cov = res.groupby("test_signer")["n_test_classes"].first()
+    assert cov[idx.signer.min()] == res["n_classes"].iloc[0] - 1
+    assert (cov.drop(idx.signer.min()) == res["n_classes"].iloc[0]).all()
+    text = write_report(tmp_path, synthetic=True)
+    assert "Reduced-coverage folds" in text
+
+
 def test_run_report_and_resume(tiny):
     d, idx = tiny
     cfg = _cfg(train_speed_aug=True)

@@ -24,6 +24,18 @@ from .landmarks import load_landmarks
 from .models import make_model
 
 
+# ---------------------------------------------------------------- metrics
+def macro_f1_present(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Macro-F1 averaged over the classes that occur in ``y_true``.
+
+    A held-out signer may not have every gloss (WL-BISINDO signer 0 has 12 of 32). Averaging
+    over all classes would add F1 = 0 for every absent class and cap the score at
+    present/total. Predictions of absent classes still count as errors through the recall
+    of the true class.
+    """
+    return float(f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true), zero_division=0))
+
+
 # ---------------------------------------------------------------- data
 def load_sequences(index: pd.DataFrame, features_dir: str | Path, cfg: dict) -> tuple[dict, list]:
     seqs, missing = {}, []
@@ -89,7 +101,7 @@ def run(cfg: dict, index: pd.DataFrame, seqs: dict, out_dir: str | Path, verbose
         y_test = np.array([label_of[v] for v in test_ids])
         # perturbed raw sequences are shared by all methods / seeds of this fold
         perturbed = {(k, f): {v: tm.perturb(seqs[v], k, f) for v in test_ids}
-                     for k in kinds for f in factors if f != 1.0}
+                     for k in kinds for f in factors if f != 1.0 and tm.applicable(k, f)}
         for seed in cfg["seeds"]:
             tr_ids, va_ids = train_test_split(
                 fold["train_ids"], test_size=cfg["split"]["val_fraction"], random_state=seed,
@@ -115,9 +127,12 @@ def run(cfg: dict, index: pd.DataFrame, seqs: dict, out_dir: str | Path, verbose
                 clean_pred = model.predict_proba(_stack(seqs, test_ids, norm, cfg_t)).argmax(1)
                 base = {"fold": fold["fold"], "test_signer": fold["test_signer"], "seed": seed,
                         "method": method, "model": cfg_m["type"], "n_train": len(X_tr),
-                        "n_test": len(test_ids)}
+                        "n_test": len(test_ids), "n_test_classes": int(len(np.unique(y_test))),
+                        "n_classes": len(classes)}
                 for k in kinds:
                     for f in factors:
+                        if not tm.applicable(k, f):
+                            continue
                         if f == 1.0:
                             pred = clean_pred
                         else:
@@ -125,8 +140,7 @@ def run(cfg: dict, index: pd.DataFrame, seqs: dict, out_dir: str | Path, verbose
                             pred = model.predict_proba(Xp).argmax(1)
                         rows.append({**base, "perturbation": k, "factor": f,
                                      "accuracy": accuracy_score(y_test, pred),
-                                     "macro_f1": f1_score(y_test, pred, average="macro",
-                                                          labels=list(range(len(classes))), zero_division=0)})
+                                     "macro_f1": macro_f1_present(y_test, pred)})
                 tag = f"{fold['fold']}_seed{seed}_{method}"
                 np.savez_compressed(out / "predictions" / f"{tag}.npz", video_id=np.array(test_ids),
                                     y_true=y_test, y_pred=clean_pred, classes=np.array(classes))

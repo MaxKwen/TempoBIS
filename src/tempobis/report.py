@@ -61,7 +61,9 @@ def plot_curves(res: pd.DataFrame, path: Path, metric: str = METRIC, title_suffi
     agg = curve_table(res, metric)
     kinds = list(dict.fromkeys(res["perturbation"]))
     fig, axes = plt.subplots(1, len(kinds), figsize=(5.2 * len(kinds), 4), sharey=True, squeeze=False)
-    names = {"global": "Whole clip speed change", "core": "Signing-segment-only speed change"}
+    names = {"global": "Whole clip speed change", "core": "Signing-segment-only speed change",
+             "warp": "Uneven tempo inside the sign", "hold": "Pause (hold) at the sign's peak"}
+    wide = res["factor"].max() / res["factor"].min() > 4
     for ax, k in zip(axes[0], kinds):
         for m in dict.fromkeys(res["method"]):
             g = agg[(agg.method == m) & (agg.perturbation == k)].sort_values("factor")
@@ -69,6 +71,10 @@ def plot_curves(res: pd.DataFrame, path: Path, metric: str = METRIC, title_suffi
             if g["std"].notna().any():
                 ax.fill_between(g.factor, g["mean"] - g["std"], g["mean"] + g["std"], alpha=0.15)
         ax.axvline(1.0, color="grey", lw=0.8, ls=":")
+        if wide:
+            fs = sorted(res["factor"].unique())
+            ax.set_xscale("log"); ax.set_xticks(fs); ax.set_xticklabels([f"{f:g}" for f in fs])
+            ax.minorticks_off()
         ax.set_title(names.get(k, k))
         ax.set_xlabel("Speed factor (>1 = faster)")
         ax.grid(alpha=0.3)
@@ -110,6 +116,28 @@ def plot_confusion(pred_dir: Path, method: str, path: Path, glosses: list[str] |
     return cm
 
 
+def coverage_section(res: pd.DataFrame, metric: str = METRIC) -> list[str]:
+    """Flag folds whose held-out signer lacks some classes; clean scores with and without them."""
+    if "n_test_classes" not in res or "n_classes" not in res:
+        return ["> Results predate class-coverage tracking: macro-F1 may average over classes",
+                "> absent from the held-out signer (F1 = 0 each). Re-run training to fix.", ""]
+    cov = res.groupby("fold")[["n_test_classes", "n_classes"]].first()
+    reduced = cov[cov.n_test_classes < cov.n_classes]
+    if reduced.empty:
+        return []
+    lines = ["Macro-F1 is averaged over the classes present in each held-out signer. Reduced-coverage folds: "
+             + ", ".join(f"{f} ({r.n_test_classes}/{r.n_classes} classes)" for f, r in reduced.iterrows()) + ".",
+             "", "Clean macro-F1 with and without those folds:", "",
+             "| Method | all folds | full-coverage folds only |", "|---|---:|---:|"]
+    clean = res[res.factor == 1.0].groupby(["method", "fold"])[metric].mean().reset_index()
+    for m in dict.fromkeys(res["method"]):
+        c = clean[clean.method == m]
+        full = c[~c.fold.isin(reduced.index)][metric]
+        lines.append(f"| {METHOD_LABELS.get(m, m)} | {_fmt(c[metric].mean(), c[metric].std())} | "
+                     f"{_fmt(full.mean(), full.std())} |")
+    return lines + [""]
+
+
 def write_report(res_dir: str | Path, glosses: list[str] | None = None, synthetic: bool = False) -> str:
     res_dir = Path(res_dir)
     res = pd.read_csv(res_dir / "results.csv")
@@ -133,6 +161,7 @@ def write_report(res_dir: str | Path, glosses: list[str] | None = None, syntheti
     n_folds, n_seeds = res["fold"].nunique(), res["seed"].nunique()
     lines += [f"Model: `{res['model'].iloc[0]}` · folds: {n_folds} ({', '.join(sorted(res['fold'].unique()))}) "
               f"· seeds: {n_seeds} · metric: macro-F1 on the held-out signer, mean ± std over folds.", ""]
+    lines += coverage_section(res)
 
     methods = list(dict.fromkeys(res["method"]))
     for k in dict.fromkeys(res["perturbation"]):
