@@ -218,3 +218,90 @@ Perturbasi vs input uniform (rata-rata |Δ| fitur setelah resample T = 32, per s
   faktor 0,25–4×, ditambah `warp` (setengah awal isyarat s×, setengah akhir 1/s×) dan `hold`
   (jeda di puncak isyarat, tinggi pergelangan maksimum; hanya s < 1).
 - Test lokal: 32 lulus, 1 skip (GRU, butuh PyTorch).
+
+## Fase 4–5 ulang dengan metrik yang diperbaiki (5 Nov 2026)
+
+Config default (faktor 0,5–1,5×, global + core), GRU, LOSO 5 fold × 3 seed.
+Bukan run stress test 5b.
+
+- Macro-F1 per run identik dengan run lama untuk fold signer 2–4 (mis. signer4 seed0 uniform
+  0,726). Pipeline deterministik per seed, dan fix metrik hanya mengubah fold signer 0.
+
+Clean macro-F1 (mean ± std atas fold):
+
+| Method | semua fold | tanpa signer 0 |
+|---|---|---|
+| Uniform | 0.706 ± 0.240 | 0.681 ± 0.270 |
+| Trim + uniform | 0.737 ± 0.217 | 0.726 ± 0.249 |
+| Motion-aware | 0.701 ± 0.237 | 0.691 ± 0.272 |
+| Uniform + speed aug | 0.722 ± 0.230 | 0.719 ± 0.265 |
+
+- Drop global/core tetap ≈0 (|drop| ≤ 0,002) untuk semua metode.
+- Paired vs uniform (n = 15, fold×seed):
+  - trim Δclean +0,031 (p = 0,041)
+  - motion_aware Δclean −0,004 (p = 0,98)
+  - speedaug Δclean +0,016 (p = 0,28)
+- Δdrop semua |·| ≤ 0,002, dan tidak ada yang p < 0,05.
+- Fold signer 0 (12-way) lebih mudah daripada rata-rata fold lain: menghapusnya menurunkan mean.
+
+## Fase 5b — Stress test berat (`configs/stress.yaml`, 5 Nov 2026)
+
+GRU, LOSO 5 fold × 3 seed, faktor 0,25–4×. Clean sama dengan run Fase 4–5 ulang.
+Bagian `global` tidak ikut tertempel lengkap. Ringkasannya (dari potongan): drop motion_aware
+−0,003, trim 0,001, speedaug −0,000.
+
+Drop = clean − rata-rata terperturbasi; worst = faktor terburuk (mean ± std atas fold):
+
+| Perturbasi | Uniform | Trim | Motion-aware | Speed aug |
+|---|---|---|---|---|
+| core drop | 0.019 ± 0.020 | 0.005 ± 0.006 | −0.003 ± 0.005 | 0.012 ± 0.016 |
+| core worst | 0.603 | 0.699 | 0.690 | 0.653 |
+| warp drop | 0.048 ± 0.023 | 0.055 ± 0.025 | −0.003 ± 0.009 | 0.049 ± 0.022 |
+| warp worst | 0.556 | 0.569 | 0.684 | 0.574 |
+| hold drop | 0.060 ± 0.036 | 0.079 ± 0.028 | −0.003 ± 0.035 | 0.061 ± 0.046 |
+| hold worst | 0.583 | 0.580 | 0.691 | 0.605 |
+
+Titik ekstrem (macro-F1):
+- core 4×: uniform 0,612 · motion_aware 0,709
+- warp 4×: uniform 0,569 · motion_aware 0,712
+- hold 0,25×: uniform 0,583 · motion_aware 0,696
+
+Paired Δdrop vs uniform (n = 15 fold×seed, Wilcoxon):
+
+| | core | warp | hold |
+|---|---|---|---|
+| motion_aware | −0,022 (p = 4,3e-4) | −0,051 (p = 6,1e-5) | −0,063 (p = 6,1e-5) |
+| trim | −0,014 (p = 0,026) | +0,007 (p = 0,25) | +0,019 (p = 0,048) |
+| speedaug | −0,007 (p = 0,026) | +0,001 (p = 0,80) | +0,001 (p = 0,80) |
+
+**Interpretasi:**
+1. Baseline akhirnya rusak. Penyebabnya bukan kecepatan rata pada rentang wajar, tapi tempo yang
+   tidak rata (warp), jeda (hold), dan percepatan segmen yang ekstrem (core ≥ 2×).
+   Motion_aware datar di semua kondisi, dengan clean cost −0,004 (p = 0,98, tidak signifikan).
+2. p = 6,1e-5 adalah p minimum Wilcoxon dua sisi untuk n = 15: ke-15 pasangan searah.
+   Pasangan dalam satu fold tidak independen. Di tingkat fold (n = 5), p minimum = 0,0625.
+   Laporkan keduanya.
+3. **Bukan kebetulan, sesuai mekanisme:** komponen (1−α) motion_aware adalah parametrisasi
+   panjang-lintasan gerak tangan, yang invarian terhadap time-warp monoton, dan frame beku
+   tidak punya massa gerak. Jadi robustness ini sebagian dijamin oleh konstruksi untuk warp dan hold.
+   Klaim yang jujur: "invarian terhadap reparametrisasi waktu, tanpa biaya akurasi clean",
+   bukan "lebih baik secara umum".
+4. Pembanding speedaug kurang adil: augmentasinya hanya global/core 0,6–1,6×, tidak mencakup
+   warp/hold atau faktor ekstrem. Perlu pembanding yang dilatih dengan augmentasi warp + hold.
+5. Trim justru lebih rapuh terhadap hold (Δdrop +0,019, p = 0,048): jendela trim lebih pendek,
+   jadi porsi frame beku lebih besar.
+6. Uniform tahan di core lambat (0,25×) tapi jatuh di core cepat (4×): isyarat yang dipercepat
+   hanya mendapat sedikit dari 32 timestep.
+- **Backup:** dataset `maximusquinnhertada/tempobis-landmarks` diperbarui (versi baru) dengan
+  `results/` (metrik diperbaiki) dan `results_stress/`, termasuk model dan prediksi.
+
+### Pembanding adil: `uniform_fullaug` (kode siap, belum dijalankan)
+
+- Uniform + augmentasi training: 2 salinan per video, jenis acak dari core/warp/hold, faktor
+  log-uniform 0,25–4× (hold dibalik ke < 1). Global tidak dipakai karena uniform invarian
+  terhadapnya. Seed dan split validasi sama dengan metode lain, jadi tetap berpasangan.
+- Diaktifkan di `configs/stress.yaml` (`model.train_full_aug: true`). Run lain di
+  `results_stress/` dilewati (resume), jadi hanya 15 model baru yang dilatih.
+- Catatan: pembanding ini melihat jenis gangguan yang sama dengan test-nya, jadi ini ujian terberat
+  untuk motion_aware.
+- Test lokal: 34 lulus, 1 skip (GRU).

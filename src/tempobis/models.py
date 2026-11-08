@@ -170,7 +170,7 @@ class GRUClassifier:
 
 def make_model(cfg_model: dict, n_classes: int, seed: int):
     kind = cfg_model["type"]
-    kw = {k: v for k, v in cfg_model.items() if k not in ("type", "train_speed_aug")}
+    kw = {k: v for k, v in cfg_model.items() if k not in ("type", "train_speed_aug", "train_full_aug")}
     if kind == "gru":
         return GRUClassifier(n_classes, seed=seed, **kw)
     if kind == "mlp":

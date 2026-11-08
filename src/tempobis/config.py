@@ -46,6 +46,7 @@ DEFAULTS: dict[str, Any] = {
         "weight_decay": 1e-4,
         "patience": 15,
         "train_speed_aug": False,       # extra comparator: uniform baseline trained with speed augmentation
+        "train_full_aug": False,        # extra comparator: uniform + core/warp/hold augmentation, 0.25-4x
     },
     "stress": {
         "factors": [0.5, 0.75, 1.0, 1.25, 1.5],

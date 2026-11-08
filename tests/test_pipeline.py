@@ -58,6 +58,23 @@ def test_run_records_class_coverage_and_skips_hold_speedups(tiny, tmp_path):
     assert "Reduced-coverage folds" in text
 
 
+def test_full_aug_method_is_added_and_resumes(tiny, tmp_path):
+    d, idx = tiny
+    cfg = _cfg()
+    cfg["temporal"]["methods"] = ["uniform"]
+    cfg["stress"] = {"factors": [0.5, 1.0, 2.0], "types": ["warp", "hold"]}
+    seqs, _ = load_sequences(idx, d / "landmarks", cfg)
+    first = run(cfg, idx, seqs, tmp_path, verbose=False)
+    assert set(first.method) == {"uniform"}
+    cfg["model"]["train_full_aug"] = True                      # enable later on the same results folder
+    res = run(cfg, idx, seqs, tmp_path, verbose=False)
+    assert set(res.method) == {"uniform", "uniform_fullaug"}
+    full = res[res.method == "uniform_fullaug"]
+    assert (full.n_train == 3 * res[res.method == "uniform"].n_train.iloc[0]).all()
+    assert len(res[res.method == "uniform"]) == len(first)      # existing runs were not retrained
+    assert "Uniform + full tempo aug" in write_report(tmp_path, synthetic=True)
+
+
 def test_run_report_and_resume(tiny):
     d, idx = tiny
     cfg = _cfg(train_speed_aug=True)

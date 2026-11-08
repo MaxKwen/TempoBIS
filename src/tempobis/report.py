@@ -11,6 +11,7 @@ METHOD_LABELS = {
     "trim_uniform": "Trim + uniform (ablation)",
     "motion_aware": "Motion-aware (proposed)",
     "uniform_speedaug": "Uniform + speed aug",
+    "uniform_fullaug": "Uniform + full tempo aug",
 }
 METRIC = "macro_f1"
 

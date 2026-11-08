@@ -101,6 +101,21 @@ def test_hold_pause_length_and_frozen_frames(seq):
     assert tm.hold_pause(seq, 1.5) is seq
 
 
+def test_random_tempo_covers_segment_perturbations(seq):
+    rng = np.random.default_rng(0)
+    lengths = set()
+    for _ in range(60):
+        out = tm.random_tempo(seq, rng)
+        assert np.isfinite(out).all() and len(out) >= 2
+        assert tm.normalize(out, "uniform", CFG_T).shape == (32, seq.shape[1])
+        lengths.add(len(out))
+    assert any(n > len(seq) for n in lengths) and any(n < len(seq) for n in lengths)
+    # same seed -> same augmentation (paired comparison across runs)
+    a = tm.random_tempo(seq, np.random.default_rng(3))
+    b = tm.random_tempo(seq, np.random.default_rng(3))
+    np.testing.assert_array_equal(a, b)
+
+
 def test_hold_applicable_only_when_slowing_down():
     assert tm.applicable("hold", 0.5) and tm.applicable("hold", 1.0)
     assert not tm.applicable("hold", 2.0)

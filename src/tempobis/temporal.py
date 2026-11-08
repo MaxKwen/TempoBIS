@@ -227,3 +227,16 @@ def random_speed(seq: np.ndarray, rng: np.random.Generator, low=0.6, high=1.6) -
     f = float(np.exp(rng.uniform(np.log(low), np.log(high))))
     kind = "global" if rng.random() < 0.5 else "core"
     return perturb(seq, kind, f)
+
+
+def random_tempo(seq: np.ndarray, rng: np.random.Generator, low=0.25, high=4.0) -> np.ndarray:
+    """Training-time augmentation for the 'uniform + full aug' comparator.
+
+    Covers the stress test's segment-level perturbations (core, warp, hold) over its whole
+    range. 'global' is left out: uniform resampling is invariant to it, so it adds nothing.
+    """
+    f = float(np.exp(rng.uniform(np.log(low), np.log(high))))
+    kind = ("core", "warp", "hold")[int(rng.integers(3))]
+    if kind == "hold" and f > 1.0:
+        f = 1.0 / f                                         # a hold can only slow a sign down
+    return perturb(seq, kind, f)

@@ -6,6 +6,8 @@
 #   hold   - pause at the sign's peak so the sign lasts 1/s x as long (only s < 1)
 paths:
   results_name: results_stress
+model:
+  train_full_aug: true      # adds "uniform_fullaug": trained with the same perturbation types (fair comparator)
 stress:
   factors: [0.25, 0.33, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
   types: [global, core, warp, hold]

@@ -36,6 +36,15 @@ def macro_f1_present(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true), zero_division=0))
 
 
+# Comparators: uniform normalisation + training-time augmentation (2 extra copies per video).
+#   uniform_speedaug - mild, constant speed change (global/core, 0.6-1.6x)
+#   uniform_fullaug  - every stress-test perturbation type over the stress-test range (0.25-4x)
+AUG_METHODS = {
+    "uniform_speedaug": tm.random_speed,
+    "uniform_fullaug": tm.random_tempo,
+}
+
+
 # ---------------------------------------------------------------- data
 def load_sequences(index: pd.DataFrame, features_dir: str | Path, cfg: dict) -> tuple[dict, list]:
     seqs, missing = {}, []
@@ -86,7 +95,8 @@ def run(cfg: dict, index: pd.DataFrame, seqs: dict, out_dir: str | Path, verbose
     to_idx = {c: i for i, c in enumerate(classes)}
     label_of = dict(zip(index["video_id"], index["label"].map(to_idx)))
     cfg_t, cfg_m = cfg["temporal"], cfg["model"]
-    methods = list(cfg_t["methods"]) + (["uniform_speedaug"] if cfg_m.get("train_speed_aug") else [])
+    methods = (list(cfg_t["methods"]) + (["uniform_speedaug"] if cfg_m.get("train_speed_aug") else [])
+               + (["uniform_fullaug"] if cfg_m.get("train_full_aug") else []))
     kinds, factors = cfg["stress"]["types"], [float(f) for f in cfg["stress"]["factors"]]
 
     res_path = out / "results.csv"
@@ -112,11 +122,12 @@ def run(cfg: dict, index: pd.DataFrame, seqs: dict, out_dir: str | Path, verbose
                 if (fold["fold"], seed, method) in done:
                     continue
                 t0 = time.time()
-                norm = "uniform" if method == "uniform_speedaug" else method
+                norm = "uniform" if method in AUG_METHODS else method
                 X_tr, ytr = _stack(seqs, tr_ids, norm, cfg_t), y_tr
-                if method == "uniform_speedaug":
+                if method in AUG_METHODS:
                     rng = np.random.default_rng(seed)
-                    aug = [tm.normalize(tm.random_speed(seqs[v], rng), "uniform", cfg_t)
+                    augment = AUG_METHODS[method]
+                    aug = [tm.normalize(augment(seqs[v], rng), "uniform", cfg_t)
                            for _ in range(2) for v in tr_ids]
                     X_tr = np.concatenate([X_tr, np.stack(aug)])
                     ytr = np.concatenate([y_tr, y_tr, y_tr])
